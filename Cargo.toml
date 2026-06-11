@@ -13,5 +13,4 @@ categories = ["command-line-utilities", "os"]
 
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
-ping = "0.7.1"
-socket2 = "0.6.4"
+pinger = "2.1.1"
