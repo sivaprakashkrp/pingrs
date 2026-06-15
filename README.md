@@ -2,7 +2,9 @@
 
 [![Crates.io](https://img.shields.io/crates/v/pingrs.svg)](https://crates.io/crates/pingrs)
 
-`pingrs` is a ping utility written in RUST with coloured output and statistics. The ping requests are sent at a time delay of 1 second from the previous. RTT and Packet size are recorded and display is easy to read output.
+`pingrs` is a ping utility written in RUST for **Windows** and **Linux** systems with coloured output and statistics. The ping requests are sent at a time delay of 1 second from the previous. RTT and Packet size are recorded and display is easy to read output.
+
+**NOTE**: `pingrs` works in **Windows** and **Linux** systems only. The support for sockets for pinging in **MacOS** has not been established in `pingrs`.
 
 ![pingrs sample image](./images/pingrs-sample.png)
 
