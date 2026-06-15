@@ -1,7 +1,7 @@
 use clap::Parser;
-// use pinger::{PingOptions, PingResult::Pong, ping};
+use colored::Colorize;
 use std::{
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket}, process::exit, str::from_utf8, time::{Duration, Instant}
+    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}, process::exit, thread::sleep, time::Duration
 };
 
 #[derive(Debug, Parser)]
@@ -9,7 +9,7 @@ use std::{
     version,
     author,
     about = "Ping utility written in RUST",
-    long_about = "Long about comes here",
+    long_about = "pingrs is a ping utility written in RUST with coloured output and statistics. The ping requests are sent at a time delay of 1 second from the previous.RTT and Packet size are recorded and display is easy to read output.",
     help_template = "{bin} {version}\nDeveloped By: {author}\n\n{about}\n\nUsage:\n\t{usage}\n\n{all-args}",
     author = "Sivaprakash P"
 )]
@@ -22,114 +22,102 @@ struct CLI {
     )]
     timeout_secs: Option<u64>,
     #[arg(
-        short = 'T',
-        long = "get-time",
-        help = "Gets the time from server (Port 13)"
+        short = 'i',
+        long = "infinite",
+        help = "Pings infinitely"
     )]
-    get_time: bool,
+    infinite: bool,
+    #[arg(
+        short = 'n',
+        long = "n-times",
+        help = "Number of times to ping"
+    )]
+    no_of_times: Option<u64>,
+    #[arg(
+        short = 'T',
+        long = "ttl",
+        help = format!("Time-To-Live for a ping request (Max: {})", u8::MAX)
+    )]
+    ttl: Option<u8>,
 }
 
 struct App {
-    ip: Ipv4Addr,
+    ip: IpAddr,
     port: u16,
     socket_addr: SocketAddr,
     target: String,
-    timeout: Duration,
+    timeout: u64,
+    no_of_pings: u64,
+    is_infinite: bool,
+    ttl: u8,
 }
 
 fn main() {
     let cli = CLI::parse();
+
+    // Global Application Parameters
     let mut app: App = App {
-        ip: Ipv4Addr::UNSPECIFIED,
-        // port: if cli.get_time {13} else {7},
+        ip: IpAddr::from(Ipv4Addr::UNSPECIFIED),
         port: 0,
         socket_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 7),
         target: format!("{}", cli.target),
-        timeout: Duration::from_secs(cli.timeout_secs.unwrap_or(5)),
+        timeout: cli.timeout_secs.unwrap_or(5),
+        no_of_pings: if cli.infinite {0} else {cli.no_of_times.unwrap_or(4)},
+        is_infinite: cli.infinite,
+        ttl: cli.ttl.unwrap_or(128),
     };
 
     // Resolving the IP address from Domain Name
-    // Port 7 for Echo Protocol
     let domain_with_port = format!("{}:{}", cli.target, app.port);
 
     if let Ok(mut addrs) = domain_with_port.to_socket_addrs() {
         if let Some(sock_addr) = addrs.next() {
-            let converted_addr = match sock_addr.ip() {
-                IpAddr::V4(v4_addr) => Some(v4_addr),
-                IpAddr::V6(v6_addr) => v6_addr.to_ipv4()
-            };
-            if let Some(ip) = converted_addr {
-                app.socket_addr = sock_addr;
-                app.ip = ip;
-                println!("IP address is: {}", ip);
-            } else {
-                println!("Failed to resolve IPv4 address");
-                exit(1);
-            }
-            
+            app.socket_addr = sock_addr;
+            app.ip = sock_addr.ip();
         }
+        println!("{}: {}\n", "Resolved IP Address".blue().bold(), app.ip);
     } else {
-        println!("Failed to resovle IP address of domain");
+        println!("{}", "Failed to resovle IP address of domain".red());
         exit(2);
     }
 
-    // let options = PingOptions::new(app.target, Duration::from_secs(app.timeout_secs), None);
-    // match ping(options) {
-    //     Ok(stream) => {
-    //         for msg in stream {
-    //             match msg {
-    //                 Pong(duration, op_str) => {
-    //                     println!("Duration: {:?}\tOutput String: {}", duration, op_str);
-    //                 },
-    //                 _ => {}
-    //             }
-    //         }
-    //     },
-    //     Err(err) => {
-    //         println!("Error in pinging the source, Please try again:\n{}", err);
-    //         exit(1);
-    //     }
-    // }
+    // Preparing data for ICMP Packet
+    let data = [1,2,3,4];  // ping data
+    let timeout = Duration::from_secs(app.timeout);
+    let options = ping_rs::PingOptions { ttl: app.ttl, dont_fragment: true };
 
-    // Ping function
-    if let Err(err) = send_and_recv(&app) {
-        println!("{}", err);
-    }
-}
+    let mut count: u64 = 0;
+    let mut pckts_sent: u64 = 0;
+    let mut pckts_recv: u64 = 0;
+    let mut pckts_lost: u64 = 0;
+    let mut rtt_time_sum: u64 = 0;
+    let mut max_rtt_time: u32 = 0;
+    let mut min_rtt_time: u32 = u32::MAX;
 
-fn send_and_recv(app: &App) -> Result<(), String> {
-    match UdpSocket::bind("0.0.0.0:0") {
-        Ok(socket) => {
-            if let Err(err) = socket.set_read_timeout(Some(app.timeout)) {
-                return Err(format!("Error in setting read_timeout: {}", err));
+    println!("{}", "No.\tBytes\tRTT\tTTL".blue().bold());
+
+    while app.is_infinite || count < app.no_of_pings {
+        let result = ping_rs::send_ping(&app.ip, timeout, &data, Some(&options));
+        pckts_sent += 1;
+        match result {
+            Ok(reply) => {
+                println!("{}.\t{}\t{}ms\t{}", count + 1, data.len(), reply.rtt, options.ttl);
+                pckts_recv += 1;
+                rtt_time_sum += reply.rtt as u64;
+                if reply.rtt < min_rtt_time {min_rtt_time = reply.rtt};
+                if reply.rtt > max_rtt_time {max_rtt_time = reply.rtt};
+            },
+            Err(e) => {
+                println!("{}", format!("{:?}", e).red());
+                pckts_lost += 1;
             }
-            
-            // Recording start timestamp for RTT calc
-            let start = Instant::now();
-
-            // Sending the request packet
-            if let Err(err) = socket.send_to(b"Hello from pingrs", app.socket_addr) {
-                return Err(format!("Error in sending packets: {}", err));
-            }
-
-            // Getting response
-            let mut buf = [0;1024];
-            match socket.recv_from(&mut buf) {
-                Ok((len, src)) => {
-                    let rtt = start.elapsed();
-                    let response = from_utf8(&buf[..len]).unwrap_or("");
-
-                    println!("Response from {}: {}", src, response);
-                    println!("RTT: {} ms", rtt.as_millis());
-                },
-                Err(err) => {
-                    return Err(format!("Request timed out or failed: {}", err));
-                }
-            }
-        },
-        Err(err) => {
-            return Err(format!("Error in creating UDP socket: {}", err));
         }
+        count += 1;
+        sleep(Duration::from_millis(1000));
     }
-    Ok(())
+
+    println!("\n{}", "Ping Statistics:".blue().bold());
+    println!("{}: {}\n{}: {}\n", "Target".yellow(), app.target, "IP Address".yellow(), app.ip);
+    println!("{}:\nSent: {} | Received: {} | Lost: {} | Loss %: {}\n", "Packets".blue().bold(), format!("{}", pckts_sent).yellow().bold(), format!("{}", pckts_recv).green().bold(), format!("{}", pckts_lost).red().bold(), format!("{}%", ((pckts_lost / pckts_sent) * 100)).cyan().bold());
+    println!("{}:\nMaximum: {} | Minimum: {} | Average: {}", "Round Trip Times (ms)".blue().bold(), format!("{} ms", max_rtt_time).red().bold(), format!("{} ms", min_rtt_time).green().bold(), format!("{} ms", rtt_time_sum / pckts_recv).cyan().bold());
 }
