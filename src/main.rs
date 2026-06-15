@@ -9,7 +9,7 @@ use std::{
     version,
     author,
     about = "Ping utility written in RUST",
-    long_about = "pingrs is a ping utility written in RUST with coloured output and statistics. The ping requests are sent at a time delay of 1 second from the previous.RTT and Packet size are recorded and display is easy to read output.",
+    long_about = "pingrs is a ping utility written in RUST with coloured output and statistics. The ping requests are sent at a time delay of 1 second from the previous. RTT and Packet size are recorded and display is easy to read output.",
     help_template = "{bin} {version}\nDeveloped By: {author}\n\n{about}\n\nUsage:\n\t{usage}\n\n{all-args}",
     author = "Sivaprakash P"
 )]
